@@ -43,7 +43,7 @@ let state: {
 };
 let data: {
   sprites: HTMLImageElement;
-  spritesLoaded: boolean;
+  spritesAreLoaded: boolean;
   map: Array<Array<number>>;
   mapW: number;
   mapH: number;
@@ -85,13 +85,13 @@ function initGame(canvas: HTMLCanvasElement) {
 
     data = {
       sprites: document.createElement("img"),
-      spritesLoaded: false,
+      spritesAreLoaded: false,
       map,
       mapW,
       mapH
     };
 
-    data.sprites.onload = () => { data.spritesLoaded = true; };
+    data.sprites.onload = () => { data.spritesAreLoaded = true; };
     loadSprites();
 
     // DISPLAY //
@@ -116,8 +116,8 @@ function initGame(canvas: HTMLCanvasElement) {
     display = {
       canvas: c,
       context: ctx,
-      width: 512,
-      height: 384,
+      width: 17 * 32,
+      height: 13 * 32,
       viewX: 0,
       viewY: 0,
       viewW: 15,
@@ -149,7 +149,13 @@ function initGame(canvas: HTMLCanvasElement) {
       viewY: 0,
       fog: data.map.map(line => line.map(cell => 0)),
       player: new Player(),
-      entities: [new Door(10, 10), new Door(17, 2)],
+      entities: [
+        new Door(10, 10), new Door(17, 2),
+        new Key(4, 10), new Key(12, 13), new Key(18, 7),
+        new Bread(24, 5), new Bread(24, 7),
+        new Mouse(12, 10), new Mouse(14, 8), new Mouse(16, 8), new Mouse(15, 5),
+        new Snake(19, 3), new Snake(19, 6)
+      ],
       pressedKeys: {
         up: false,
         down: false,
@@ -206,21 +212,21 @@ function gameLoop() {
 
   if (time.delta > time.interval) {
     update();
-    draw(display.context);
+    draw();
 
     time.last = time.curr - (time.delta % time.interval);
   }
 }
 
-function entityAt(x: number, y: number): Entity | false {
+function entityAt(x: number, y: number): number {
   for (let i = 0; i < state.entities.length; i++) {
     const entity = state.entities[i];
 
     if (x === entity.posX && y === entity.posY)
-      return entity;
+      return i;
   }
 
-  return false;
+  return -1;
 };
 
 ////////////
@@ -228,7 +234,7 @@ function entityAt(x: number, y: number): Entity | false {
 ////////////
 function update() {
   if (state.game === "init") {
-    if (data.spritesLoaded) {
+    if (data.spritesAreLoaded) {
       renderUnderlayer();
       state.game = "input";
     }
@@ -250,7 +256,8 @@ function update() {
 ///////////////
 // RENDERING //
 ///////////////
-function draw(ctx: CanvasRenderingContext2D) {
+function draw() {
+  const ctx = display.context;
   ctx.clearRect(0, 0, display.width, display.height);
 
   if (state.game === "load") {
@@ -264,15 +271,8 @@ function draw(ctx: CanvasRenderingContext2D) {
     }
     state.player.draw();
     drawFog();
+    drawUI();
   }
-}
-
-function drawSprite(ctx: CanvasRenderingContext2D, sx: number, sy: number, dx: number, dy: number) {
-  ctx.drawImage(
-    data.sprites,
-    sx * 16, sy * 16, 16, 16,
-    dx * 32, dy * 32, 32, 32
-  );
 }
 
 function drawUnderlayer() {
@@ -302,12 +302,55 @@ function drawFog() {
           ctx.fillRect(x * 32, y * 32, 32, 32);
         }
         else if (state.fog[absY][absX] === 1) {
-          drawSprite(ctx, 15, 0, x, y);
+          drawSprite(15, 0, x, y);
         }
       }
     }
   }
 }
+
+function drawUI() {
+  let lifestr = `Life ${state.player.life}`.split("");
+  for (let char = 0; char < lifestr.length; char++)
+    drawChar(lifestr[char], char, 11);
+
+  let keystr = `Keys ${state.player.keys}`.split("");
+  for (let char = 0; char < keystr.length; char++)
+    drawChar(keystr[char], char, 12);
+}
+
+function drawSprite(sx: number, sy: number, dx: number, dy: number) {
+  display.context.drawImage(
+    data.sprites,
+    sx * 16, sy * 16, 16, 16,
+    dx * 32, dy * 32, 32, 32
+  );
+}
+
+function drawChar(char: string, x: number, y: number) {
+  let spriteX, spriteY;
+
+  if (char === " ")
+    return;
+  else if (/^[0-9]$/.test(char)) {
+    spriteY = 23;
+    spriteX = +char;
+  }
+  else if (/^[A-Z]$/.test(char)) {
+    spriteY = 24;
+    spriteX = char.charCodeAt(0) - 65;
+  }
+  else if (/^[a-z]$/.test(char)) {
+    spriteY = 26;
+    spriteX = char.charCodeAt(0) - 97;
+  }
+
+  display.context.drawImage(
+    data.sprites,
+    spriteX * 8, spriteY * 16, 8, 16,
+    x * 16, y * 32, 16, 32
+  );
+};
 
 function renderUnderlayer() {
   const utx = display.undercontext,
@@ -369,9 +412,26 @@ abstract class Entity {
     this.posY = posY;
   }
 
-  abstract draw(): void;
   abstract update(): void;
-  abstract interact(): void;
+  abstract interact(eid: number): void;
+
+  draw() {
+    const ctx = display.context,
+          relX = this.posX - display.viewX,
+          relY = this.posY - display.viewY;
+
+    if (
+      state.fog[this.posY][this.posX] === 1 &&
+      this.posX >= display.viewX && this.posX < display.viewX + display.viewW &&
+      this.posY >= display.viewY && this.posY < display.viewY + display.viewH
+    ) {
+      drawSprite(this.spriteX, this.spriteY, relX, relY);
+    };
+  };
+
+  delete(eid: number) {
+    state.entities = state.entities.slice(0, eid).concat(state.entities.slice(eid + 1));
+  };
 };
 
 class Player {
@@ -379,6 +439,9 @@ class Player {
   private spriteY: number;
   private posX: number;
   private posY: number;
+
+  public life: number;
+  public keys: number;
 
   constructor() {
     this.spriteX = 2;
@@ -389,15 +452,32 @@ class Player {
     display.viewX = this.posX - ((display.viewW - 1) / 2);
     display.viewY = this.posY - ((display.viewH - 1) / 2);
 
-    console.log(display.viewX, display.viewY);
+    this.life = 100;
+    this.keys = 0;
+  }
+
+  gainKey = () => {
+    this.keys += 1;
+  };
+
+  loseKey = () => {
+    this.keys -= 1;
+  };
+
+  gainLife = (how_much: number) => {
+    this.life += how_much;
+
+    if (this.life > 100)
+      this.life -= this.life % 100;
+  }
+
+  loseLife = (how_much: number) => {
+    this.life -= how_much;
   }
 
   draw = () => {
     const ctx = display.context;
-    drawSprite(
-      ctx,
-      this.spriteX, this.spriteY, 7, 5
-    );
+    drawSprite(this.spriteX, this.spriteY, 7, 5);
   }
 
   update = () => {
@@ -412,12 +492,20 @@ class Player {
       state.fog[this.posY + 2][this.posX + x] = 1;
 
     // handle input
+    const entities = state.entities;
+
     if (state.pressedKeys.up) {
       if (data.map[this.posY - 1][this.posX] > 2) {
-        const entity = entityAt(this.posX, this.posY - 1);
+        const eId = entityAt(this.posX, this.posY - 1);
 
-        if (entity !== false && entity.solid)
-          entity.interact();
+        if (eId !== -1) {
+          if (entities[eId].solid === false) {
+            this.posY -= 1;
+            display.viewY -= 1;
+          };
+
+          entities[eId].interact(eId);
+        }
         else {
           this.posY -= 1;
           display.viewY -= 1;
@@ -426,10 +514,16 @@ class Player {
     }
     else if (state.pressedKeys.down) {
       if (data.map[this.posY + 1][this.posX] > 2) {
-        const entity = entityAt(this.posX, this.posY + 1);
+        const eId = entityAt(this.posX, this.posY + 1);
 
-        if (entity !== false && entity.solid)
-          entity.interact();
+        if (eId !== -1) {
+          if (entities[eId].solid === false) {
+            this.posY += 1;
+            display.viewY += 1;
+          };
+
+          entities[eId].interact(eId);
+        }
         else {
           this.posY += 1;
           display.viewY += 1;
@@ -438,10 +532,16 @@ class Player {
     }
     else if (state.pressedKeys.left) {
       if (data.map[this.posY][this.posX - 1] > 2) {
-        const entity = entityAt(this.posX - 1, this.posY);
+        const eId = entityAt(this.posX - 1, this.posY);
 
-        if (entity !== false && entity.solid)
-          entity.interact();
+        if (eId !== -1) {
+          if (entities[eId].solid === false) {
+            this.posX -= 1;
+            display.viewX -= 1;
+          };
+
+          entities[eId].interact(eId);
+        }
         else {
           this.posX -= 1;
           display.viewX -= 1;
@@ -450,10 +550,16 @@ class Player {
     }
     else if (state.pressedKeys.right) {
       if (data.map[this.posY][this.posX + 1] > 2) {
-        const entity = entityAt(this.posX + 1, this.posY);
+        const eId = entityAt(this.posX + 1, this.posY);
 
-        if (entity !== false && entity.solid)
-          entity.interact();
+        if (eId !== -1) {
+          if (entities[eId].solid === false) {
+            this.posX += 1;
+            display.viewX += 1;
+          };
+
+          entities[eId].interact(eId);
+        }
         else {
           this.posX += 1;
           display.viewX += 1;
@@ -475,23 +581,115 @@ class Door extends Entity {
     this.solid = true;
   };
 
-  draw() {
-    const ctx = display.context,
-          relX = this.posX - display.viewX,
-          relY = this.posY - display.viewY;
-
-    if (
-      state.fog[this.posY][this.posX] === 1 &&
-      this.posX >= display.viewX && this.posX < display.viewX + display.viewW &&
-      this.posY >= display.viewY && this.posY < display.viewY + display.viewH
-    ) {
-      drawSprite(ctx, this.spriteX + (+this.opened), this.spriteY, relX, relY);
+  interact() {
+    if (state.player.keys > 0) {
+      state.player.loseKey();
+      this.opened = true;
+      this.solid = false;
+      this.spriteX = 13;
     };
   };
 
-  interact() {
-    this.opened = true;
+  update() {};
+};
+
+class Key extends Entity {
+  constructor(posX: number, posY: number) {
+    super(posX, posY);
+    this.spriteX = 11;
+    this.spriteY = 13;
+
     this.solid = false;
+  };
+
+  interact(eId: number) {
+    state.player.gainKey();
+    this.delete(eId);
+  };
+
+  update() {};
+};
+
+class Cheese extends Entity {
+  constructor(posX: number, posY: number) {
+    super(posX, posY);
+    this.spriteX = 7;
+    this.spriteY = 15;
+
+    this.solid = false;
+  };
+
+  interact(eId: number) {
+    state.player.gainLife(10);
+    this.delete(eId);
+  };
+
+  update() {};
+};
+
+class Bread extends Entity {
+  constructor(posX: number, posY: number) {
+    super(posX, posY);
+    this.spriteX = 5;
+    this.spriteY = 15;
+
+    this.solid = false;
+  };
+
+  interact(eId: number) {
+    state.player.gainLife(20);
+    this.delete(eId);
+  };
+
+  update() {};
+};
+
+class Mouse extends Entity {
+  public health: number;
+  public damage: [number, number];
+
+  constructor(posX: number, posY: number) {
+    super(posX, posY);
+    this.spriteX = 0;
+    this.spriteY = 4;
+
+    this.health = 15;
+    this.solid = true;
+  };
+
+  interact(eId: number) {
+    this.health -= 5;
+    state.player.loseLife(5);
+
+    if (this.health <= 0) {
+      this.delete(eId);
+      state.entities.push(new Cheese(this.posX, this.posY));
+    };
+  };
+
+  update() {};
+};
+
+class Snake extends Entity {
+  public health: number;
+  public damage: [number, number];
+
+  constructor(posX: number, posY: number) {
+    super(posX, posY);
+    this.spriteX = 6;
+    this.spriteY = 4;
+
+    this.health = 15;
+    this.solid = true;
+  };
+
+  interact(eId: number) {
+    this.health -= 5;
+    state.player.loseLife(10);
+
+    if (this.health <= 0) {
+      this.delete(eId);
+    };
   };
 
   update() {};

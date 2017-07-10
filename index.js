@@ -49,12 +49,12 @@ function initGame(canvas) {
         var mapW = map[0].length, mapH = map.length;
         data = {
             sprites: document.createElement("img"),
-            spritesLoaded: false,
+            spritesAreLoaded: false,
             map: map,
             mapW: mapW,
             mapH: mapH
         };
-        data.sprites.onload = function () { data.spritesLoaded = true; };
+        data.sprites.onload = function () { data.spritesAreLoaded = true; };
         loadSprites();
         // DISPLAY //
         var c = canvas;
@@ -74,8 +74,8 @@ function initGame(canvas) {
         display = {
             canvas: c,
             context: ctx,
-            width: 512,
-            height: 384,
+            width: 17 * 32,
+            height: 13 * 32,
             viewX: 0,
             viewY: 0,
             viewW: 15,
@@ -106,7 +106,13 @@ function initGame(canvas) {
             viewY: 0,
             fog: data.map.map(function (line) { return line.map(function (cell) { return 0; }); }),
             player: new Player(),
-            entities: [new Door(10, 10), new Door(17, 2)],
+            entities: [
+                new Door(10, 10), new Door(17, 2),
+                new Key(4, 10), new Key(12, 13), new Key(18, 7),
+                new Bread(24, 5), new Bread(24, 7),
+                new Mouse(12, 10), new Mouse(14, 8), new Mouse(16, 8), new Mouse(15, 5),
+                new Snake(19, 3), new Snake(19, 6)
+            ],
             pressedKeys: {
                 up: false,
                 down: false,
@@ -153,7 +159,7 @@ function gameLoop() {
     time.delta = (time.curr - time.last);
     if (time.delta > time.interval) {
         update();
-        draw(display.context);
+        draw();
         time.last = time.curr - (time.delta % time.interval);
     }
 }
@@ -161,9 +167,9 @@ function entityAt(x, y) {
     for (var i = 0; i < state.entities.length; i++) {
         var entity = state.entities[i];
         if (x === entity.posX && y === entity.posY)
-            return entity;
+            return i;
     }
-    return false;
+    return -1;
 }
 ;
 ////////////
@@ -171,7 +177,7 @@ function entityAt(x, y) {
 ////////////
 function update() {
     if (state.game === "init") {
-        if (data.spritesLoaded) {
+        if (data.spritesAreLoaded) {
             renderUnderlayer();
             state.game = "input";
         }
@@ -191,7 +197,8 @@ function update() {
 ///////////////
 // RENDERING //
 ///////////////
-function draw(ctx) {
+function draw() {
+    var ctx = display.context;
     ctx.clearRect(0, 0, display.width, display.height);
     if (state.game === "load") {
         ctx.fillStyle = "#000000";
@@ -204,10 +211,8 @@ function draw(ctx) {
         }
         state.player.draw();
         drawFog();
+        drawUI();
     }
-}
-function drawSprite(ctx, sx, sy, dx, dy) {
-    ctx.drawImage(data.sprites, sx * 16, sy * 16, 16, 16, dx * 32, dy * 32, 32, 32);
 }
 function drawUnderlayer() {
     var u = display.underlayer;
@@ -226,12 +231,42 @@ function drawFog() {
                     ctx.fillRect(x * 32, y * 32, 32, 32);
                 }
                 else if (state.fog[absY][absX] === 1) {
-                    drawSprite(ctx, 15, 0, x, y);
+                    drawSprite(15, 0, x, y);
                 }
             }
         }
     }
 }
+function drawUI() {
+    var lifestr = ("Life " + state.player.life).split("");
+    for (var char = 0; char < lifestr.length; char++)
+        drawChar(lifestr[char], char, 11);
+    var keystr = ("Keys " + state.player.keys).split("");
+    for (var char = 0; char < keystr.length; char++)
+        drawChar(keystr[char], char, 12);
+}
+function drawSprite(sx, sy, dx, dy) {
+    display.context.drawImage(data.sprites, sx * 16, sy * 16, 16, 16, dx * 32, dy * 32, 32, 32);
+}
+function drawChar(char, x, y) {
+    var spriteX, spriteY;
+    if (char === " ")
+        return;
+    else if (/^[0-9]$/.test(char)) {
+        spriteY = 23;
+        spriteX = +char;
+    }
+    else if (/^[A-Z]$/.test(char)) {
+        spriteY = 24;
+        spriteX = char.charCodeAt(0) - 65;
+    }
+    else if (/^[a-z]$/.test(char)) {
+        spriteY = 26;
+        spriteX = char.charCodeAt(0) - 97;
+    }
+    display.context.drawImage(data.sprites, spriteX * 8, spriteY * 16, 8, 16, x * 16, y * 32, 16, 32);
+}
+;
 function renderUnderlayer() {
     var utx = display.undercontext, mapY = data.map.length, mapX = data.map[0].length;
     for (var y = 0; y < mapY; y++) {
@@ -264,15 +299,43 @@ var Entity = (function () {
         this.posX = posX;
         this.posY = posY;
     }
+    Entity.prototype.draw = function () {
+        var ctx = display.context, relX = this.posX - display.viewX, relY = this.posY - display.viewY;
+        if (state.fog[this.posY][this.posX] === 1 &&
+            this.posX >= display.viewX && this.posX < display.viewX + display.viewW &&
+            this.posY >= display.viewY && this.posY < display.viewY + display.viewH) {
+            drawSprite(this.spriteX, this.spriteY, relX, relY);
+        }
+        ;
+    };
+    ;
+    Entity.prototype["delete"] = function (eid) {
+        state.entities = state.entities.slice(0, eid).concat(state.entities.slice(eid + 1));
+    };
+    ;
     return Entity;
 }());
 ;
 var Player = (function () {
     function Player() {
         var _this = this;
+        this.gainKey = function () {
+            _this.keys += 1;
+        };
+        this.loseKey = function () {
+            _this.keys -= 1;
+        };
+        this.gainLife = function (how_much) {
+            _this.life += how_much;
+            if (_this.life > 100)
+                _this.life -= _this.life % 100;
+        };
+        this.loseLife = function (how_much) {
+            _this.life -= how_much;
+        };
         this.draw = function () {
             var ctx = display.context;
-            drawSprite(ctx, _this.spriteX, _this.spriteY, 7, 5);
+            drawSprite(_this.spriteX, _this.spriteY, 7, 5);
         };
         this.update = function () {
             // bust fog
@@ -285,11 +348,18 @@ var Player = (function () {
             for (var x = -1; x < 2; x++)
                 state.fog[_this.posY + 2][_this.posX + x] = 1;
             // handle input
+            var entities = state.entities;
             if (state.pressedKeys.up) {
                 if (data.map[_this.posY - 1][_this.posX] > 2) {
-                    var entity = entityAt(_this.posX, _this.posY - 1);
-                    if (entity !== false && entity.solid)
-                        entity.interact();
+                    var eId = entityAt(_this.posX, _this.posY - 1);
+                    if (eId !== -1) {
+                        if (entities[eId].solid === false) {
+                            _this.posY -= 1;
+                            display.viewY -= 1;
+                        }
+                        ;
+                        entities[eId].interact(eId);
+                    }
                     else {
                         _this.posY -= 1;
                         display.viewY -= 1;
@@ -300,9 +370,15 @@ var Player = (function () {
             }
             else if (state.pressedKeys.down) {
                 if (data.map[_this.posY + 1][_this.posX] > 2) {
-                    var entity = entityAt(_this.posX, _this.posY + 1);
-                    if (entity !== false && entity.solid)
-                        entity.interact();
+                    var eId = entityAt(_this.posX, _this.posY + 1);
+                    if (eId !== -1) {
+                        if (entities[eId].solid === false) {
+                            _this.posY += 1;
+                            display.viewY += 1;
+                        }
+                        ;
+                        entities[eId].interact(eId);
+                    }
                     else {
                         _this.posY += 1;
                         display.viewY += 1;
@@ -313,9 +389,15 @@ var Player = (function () {
             }
             else if (state.pressedKeys.left) {
                 if (data.map[_this.posY][_this.posX - 1] > 2) {
-                    var entity = entityAt(_this.posX - 1, _this.posY);
-                    if (entity !== false && entity.solid)
-                        entity.interact();
+                    var eId = entityAt(_this.posX - 1, _this.posY);
+                    if (eId !== -1) {
+                        if (entities[eId].solid === false) {
+                            _this.posX -= 1;
+                            display.viewX -= 1;
+                        }
+                        ;
+                        entities[eId].interact(eId);
+                    }
                     else {
                         _this.posX -= 1;
                         display.viewX -= 1;
@@ -326,9 +408,15 @@ var Player = (function () {
             }
             else if (state.pressedKeys.right) {
                 if (data.map[_this.posY][_this.posX + 1] > 2) {
-                    var entity = entityAt(_this.posX + 1, _this.posY);
-                    if (entity !== false && entity.solid)
-                        entity.interact();
+                    var eId = entityAt(_this.posX + 1, _this.posY);
+                    if (eId !== -1) {
+                        if (entities[eId].solid === false) {
+                            _this.posX += 1;
+                            display.viewX += 1;
+                        }
+                        ;
+                        entities[eId].interact(eId);
+                    }
                     else {
                         _this.posX += 1;
                         display.viewX += 1;
@@ -344,7 +432,8 @@ var Player = (function () {
         this.posY = 3;
         display.viewX = this.posX - ((display.viewW - 1) / 2);
         display.viewY = this.posY - ((display.viewH - 1) / 2);
-        console.log(display.viewX, display.viewY);
+        this.life = 100;
+        this.keys = 0;
     }
     return Player;
 }());
@@ -360,23 +449,129 @@ var Door = (function (_super) {
         return _this;
     }
     ;
-    Door.prototype.draw = function () {
-        var ctx = display.context, relX = this.posX - display.viewX, relY = this.posY - display.viewY;
-        if (state.fog[this.posY][this.posX] === 1 &&
-            this.posX >= display.viewX && this.posX < display.viewX + display.viewW &&
-            this.posY >= display.viewY && this.posY < display.viewY + display.viewH) {
-            drawSprite(ctx, this.spriteX + (+this.opened), this.spriteY, relX, relY);
+    Door.prototype.interact = function () {
+        if (state.player.keys > 0) {
+            state.player.loseKey();
+            this.opened = true;
+            this.solid = false;
+            this.spriteX = 13;
         }
         ;
-    };
-    ;
-    Door.prototype.interact = function () {
-        this.opened = true;
-        this.solid = false;
     };
     ;
     Door.prototype.update = function () { };
     ;
     return Door;
+}(Entity));
+;
+var Key = (function (_super) {
+    __extends(Key, _super);
+    function Key(posX, posY) {
+        var _this = _super.call(this, posX, posY) || this;
+        _this.spriteX = 11;
+        _this.spriteY = 13;
+        _this.solid = false;
+        return _this;
+    }
+    ;
+    Key.prototype.interact = function (eId) {
+        state.player.gainKey();
+        this["delete"](eId);
+    };
+    ;
+    Key.prototype.update = function () { };
+    ;
+    return Key;
+}(Entity));
+;
+var Cheese = (function (_super) {
+    __extends(Cheese, _super);
+    function Cheese(posX, posY) {
+        var _this = _super.call(this, posX, posY) || this;
+        _this.spriteX = 7;
+        _this.spriteY = 15;
+        _this.solid = false;
+        return _this;
+    }
+    ;
+    Cheese.prototype.interact = function (eId) {
+        state.player.gainLife(10);
+        this["delete"](eId);
+    };
+    ;
+    Cheese.prototype.update = function () { };
+    ;
+    return Cheese;
+}(Entity));
+;
+var Bread = (function (_super) {
+    __extends(Bread, _super);
+    function Bread(posX, posY) {
+        var _this = _super.call(this, posX, posY) || this;
+        _this.spriteX = 5;
+        _this.spriteY = 15;
+        _this.solid = false;
+        return _this;
+    }
+    ;
+    Bread.prototype.interact = function (eId) {
+        state.player.gainLife(20);
+        this["delete"](eId);
+    };
+    ;
+    Bread.prototype.update = function () { };
+    ;
+    return Bread;
+}(Entity));
+;
+var Mouse = (function (_super) {
+    __extends(Mouse, _super);
+    function Mouse(posX, posY) {
+        var _this = _super.call(this, posX, posY) || this;
+        _this.spriteX = 0;
+        _this.spriteY = 4;
+        _this.health = 15;
+        _this.solid = true;
+        return _this;
+    }
+    ;
+    Mouse.prototype.interact = function (eId) {
+        this.health -= 5;
+        state.player.loseLife(5);
+        if (this.health <= 0) {
+            this["delete"](eId);
+            state.entities.push(new Cheese(this.posX, this.posY));
+        }
+        ;
+    };
+    ;
+    Mouse.prototype.update = function () { };
+    ;
+    return Mouse;
+}(Entity));
+;
+var Snake = (function (_super) {
+    __extends(Snake, _super);
+    function Snake(posX, posY) {
+        var _this = _super.call(this, posX, posY) || this;
+        _this.spriteX = 6;
+        _this.spriteY = 4;
+        _this.health = 15;
+        _this.solid = true;
+        return _this;
+    }
+    ;
+    Snake.prototype.interact = function (eId) {
+        this.health -= 5;
+        state.player.loseLife(10);
+        if (this.health <= 0) {
+            this["delete"](eId);
+        }
+        ;
+    };
+    ;
+    Snake.prototype.update = function () { };
+    ;
+    return Snake;
 }(Entity));
 ;
