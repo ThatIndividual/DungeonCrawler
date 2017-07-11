@@ -310,11 +310,12 @@ function drawFog() {
 }
 
 function drawUI() {
-  let lifestr = `Life ${state.player.life}`.split("");
+  let lifestr = `HP ${state.player.life}`.split("");
   for (let char = 0; char < lifestr.length; char++)
     drawChar(lifestr[char], char, 11);
 
-  let keystr = `Keys ${state.player.keys}`.split("");
+  drawSprite(11, 13, 0, 12);
+  let keystr = `   ${state.player.keys}`.split("");
   for (let char = 0; char < keystr.length; char++)
     drawChar(keystr[char], char, 12);
 }
@@ -453,7 +454,7 @@ class Player {
     display.viewY = this.posY - ((display.viewH - 1) / 2);
 
     this.life = 100;
-    this.keys = 0;
+    this.keys = 10;
   }
 
   gainKey = () => {
@@ -570,21 +571,17 @@ class Player {
 };
 
 class Door extends Entity {
-  public opened: boolean;
-
   constructor(posX: number, posY: number) {
     super(posX, posY);
     this.spriteX = 12;
     this.spriteY = 8;
 
-    this.opened = false;
     this.solid = true;
   };
 
   interact() {
-    if (state.player.keys > 0) {
+    if (this.solid && state.player.keys > 0) {
       state.player.loseKey();
-      this.opened = true;
       this.solid = false;
       this.spriteX = 13;
     };

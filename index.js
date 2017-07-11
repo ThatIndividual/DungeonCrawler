@@ -238,10 +238,11 @@ function drawFog() {
     }
 }
 function drawUI() {
-    var lifestr = ("Life " + state.player.life).split("");
+    var lifestr = ("HP " + state.player.life).split("");
     for (var char = 0; char < lifestr.length; char++)
         drawChar(lifestr[char], char, 11);
-    var keystr = ("Keys " + state.player.keys).split("");
+    drawSprite(11, 13, 0, 12);
+    var keystr = ("   " + state.player.keys).split("");
     for (var char = 0; char < keystr.length; char++)
         drawChar(keystr[char], char, 12);
 }
@@ -433,7 +434,7 @@ var Player = (function () {
         display.viewX = this.posX - ((display.viewW - 1) / 2);
         display.viewY = this.posY - ((display.viewH - 1) / 2);
         this.life = 100;
-        this.keys = 0;
+        this.keys = 10;
     }
     return Player;
 }());
@@ -444,15 +445,13 @@ var Door = (function (_super) {
         var _this = _super.call(this, posX, posY) || this;
         _this.spriteX = 12;
         _this.spriteY = 8;
-        _this.opened = false;
         _this.solid = true;
         return _this;
     }
     ;
     Door.prototype.interact = function () {
-        if (state.player.keys > 0) {
+        if (this.solid && state.player.keys > 0) {
             state.player.loseKey();
-            this.opened = true;
             this.solid = false;
             this.spriteX = 13;
         }
